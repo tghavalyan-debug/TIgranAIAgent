@@ -1,84 +1,64 @@
-import warnings
-warnings.filterwarnings("ignore", category=DeprecationWarning)
-from langchain_community.document_loaders import TextLoader
-from langchain_community.document_loaders import DirectoryLoader
-
-from langchain_text_splitters import RecursiveCharacterTextSplitter, CharacterTextSplitter
-from langchain_chroma import Chroma
-
 import os
+import shutil
 from dotenv import load_dotenv
-
+from langchain_community.document_loaders import DirectoryLoader, TextLoader, PyPDFLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_chroma import Chroma
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
+# Load environment variables
+load_dotenv()
 
+def ingest_data():
+    # 1. Load documents from data/
+    # Supporting .txt, .md, and .pdf
+    print("📂 Loading documents from data/...")
+    
+    # Text and Markdown loader
+    txt_loader = DirectoryLoader('data/', glob="**/*.txt", loader_cls=TextLoader, loader_kwargs={"encoding": "utf-8"})
+    md_loader = DirectoryLoader('data/', glob="**/*.md", loader_cls=TextLoader, loader_kwargs={"encoding": "utf-8"})
+    pdf_loader = DirectoryLoader('data/', glob="**/*.pdf", loader_cls=PyPDFLoader)
+    
+    docs = []
+    docs.extend(txt_loader.load())
+    docs.extend(md_loader.load())
+    docs.extend(pdf_loader.load())
+    
+    if not docs:
+        print("⚠️ No documents found in data/.")
+        return
 
-def load_text_file(file_path: str, encoding: str = "utf-8"):
-    """
-    Loads a text file using LangChain's TextLoader.
+    print(f"📄 Loaded {len(docs)} documents.")
 
-    Args:
-        file_path (str): Path to the .txt file.
-        encoding (str): File encoding (default: utf-8).
+    # 2. Split into chunks
+    print("✂️ Splitting documents into chunks...")
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=500,
+        chunk_overlap=50,
+        length_function=len,
+    )
+    chunks = splitter.split_documents(docs)
+    print(f"🧩 Created {len(chunks)} chunks.")
 
-    Returns:
-        list: List of Document objects containing text and metadata.
-    """
-    try:
-        loader = DirectoryLoader(
-    "data/",
-    glob="*.txt",
-    loader_cls=TextLoader,
-    loader_kwargs={"encoding": "utf-8"}
-)
-        documents = loader.load()
-        return documents
-    except FileNotFoundError:
-        print(f"Error: File '{file_path}' not found.")
-    except UnicodeDecodeError:
-        print(f"Error: Could not decode file '{file_path}' with encoding '{encoding}'.")
-    except Exception as e:
-        print(f"Unexpected error: {e}")
+    # 3. Embed and store in ChromaDB
+    persist_directory = "chromadb_store"
+    
+    # To avoid duplication on re-run, we clear the existing store
+    if os.path.exists(persist_directory):
+        print(f"🧹 Clearing existing store at {persist_directory}...")
+        shutil.rmtree(persist_directory)
 
-
-def build_store(documents):
-
-    splitter = CharacterTextSplitter(chunk_size=200, separator=".")
-
-    chunks = splitter.split_documents(documents)
-
-    load_dotenv()
-
-    for chunk in chunks:
-        print(len(chunk.page_content))
-
-
-    embeddings = GoogleGenerativeAIEmbeddings(
-    model="text-embedding-004")
-
-    db = Chroma.from_documents(
-      documents=chunks,
-      embedding=embeddings,
-      persist_directory="data/chroma"
-)
-
-
+    print("🧠 Embedding and storing in ChromaDB...")
+    embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
+    
+    vectorstore = Chroma.from_documents(
+        documents=chunks,
+        embedding=embeddings,
+        persist_directory=persist_directory
+    )
+    
+    print(f"✅ Successfully stored {len(chunks)} chunks in {persist_directory}.")
+    return vectorstore
 
 if __name__ == "__main__":
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-
-# Joins it cleanly to 'data/privatedata.txt'
-    file_path = os.path.join(script_dir, "data", "privatedata.txt")
-    print(file_path)
-
-    docs = load_text_file(file_path)
-
-
-    if docs:
-        print(f"Loaded {len(docs)} document(s).")
-        print("First document content preview:")
-        print(docs[0].page_content[:200])  # Show first 200 characters
-        print("Metadata:", docs[0].metadata)
-
-    build_store(docs)
-
+    ingest_data()
