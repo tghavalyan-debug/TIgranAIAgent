@@ -69,7 +69,7 @@ def build_store(splitter, persist_directory):
     
     print(f"✅ Successfully stored {len(chunks)} chunks in {persist_directory}.")
     return vectorstore
-
+ 
 if __name__ == "__main__":
     # Default behavior: replicate HW1 (500/50)
     hw1_splitter = RecursiveCharacterTextSplitter(
